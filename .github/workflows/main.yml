@@ -7,21 +7,9 @@ on:
   workflow_dispatch:
 
 jobs:
-  build:
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - container: alpine:latest
-            name: alpine-x86_64
-            arch: x86_64
-            
-          - container: arm64v8/alpine:latest
-            name: alpine-arm64
-            arch: arm64
-
+  build-x86_64:
     runs-on: ubuntu-latest
-    container: ${{ matrix.container }}
+    container: alpine:latest
     
     steps:
       - name: Install git
@@ -42,29 +30,60 @@ jobs:
           sed -i '1i #include <libgen.h>' src/cli/cli.c
           sed -i '/^#include/i #include "mem.h"' src/tracee/tracee.c
       
-      - name: Build loader
-        run: make -C src loader.elf build.h
-      
-      - name: Build proot static
+      - name: Build
         run: |
-          make -C src \
-            CFLAGS="-O3 -static" \
-            LDFLAGS="-static -ltalloc" \
-            proot
+          make -C src loader.elf build.h
+          make -C src CFLAGS="-O3 -static" LDFLAGS="-static -ltalloc" proot
       
-      - name: Rename binary
+      - name: Rename
         run: |
-          mv src/proot proot-${{ matrix.name }}
-          chmod +x proot-${{ matrix.name }}
+          mv src/proot proot-alpine-x86_64
+          chmod +x proot-alpine-x86_64
       
-      - name: Upload artifact
+      - name: Upload
         uses: actions/upload-artifact@v4
         with:
-          name: proot-${{ matrix.name }}
-          path: proot-${{ matrix.name }}
+          name: proot-alpine-x86_64
+          path: proot-alpine-x86_64
+
+  build-arm64:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+      
+      - name: Build in ARM64 container
+        uses: uraimo/run-on-arch-action@v2
+        with:
+          arch: aarch64
+          distro: alpine_latest
+          install: |
+            apk add --no-cache \
+              git make gcc musl-dev linux-headers \
+              libarchive-dev talloc-dev uthash-dev \
+              libarchive-static talloc-static \
+              bsd-compat-headers
+          run: |
+            sed -i '1i #include <libgen.h>' src/cli/cli.c
+            sed -i '/^#include/i #include "mem.h"' src/tracee/tracee.c
+            make -C src loader.elf build.h
+            make -C src CFLAGS="-O3 -static" LDFLAGS="-static -ltalloc" proot
+            mv src/proot proot-alpine-arm64
+            chmod +x proot-alpine-arm64
+      
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: proot-alpine-arm64
+          path: proot-alpine-arm64
 
   release:
-    needs: build
+    needs: [build-x86_64, build-arm64]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/v')
     
@@ -75,33 +94,15 @@ jobs:
           path: artifacts
           merge-multiple: true
       
-      - name: List artifacts
+      - name: List
         run: ls -lh artifacts/
       
-      - name: Create Release
+      - name: Release
         uses: softprops/action-gh-release@v1
         with:
           files: artifacts/proot-*
           generate_release_notes: true
-          name: "PRoot ${{ github.ref_name }} - Static Builds"
-          body: |
-            ## PRoot Static Builds (musl libc)
-            
-            | Platform | Architecture | File |
-            |----------|-------------|------|
-            | Alpine Linux | x86_64 | `proot-alpine-x86_64` |
-            | Alpine Linux | ARM64 | `proot-alpine-arm64` |
-            
-            ### Features:
-            - ✅ Fully static (no dependencies)
-            - ✅ Works on any Linux distro
-            - ✅ Includes all extensions
-            
-            ### Usage:
-            ```bash
-            chmod +x proot-alpine-x86_64
-            ./proot-alpine-x86_64 --version
-            ```
+          name: "PRoot ${{ github.ref_name }}"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           
