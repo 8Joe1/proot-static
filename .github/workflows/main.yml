@@ -1,21 +1,72 @@
-name: Build PRoot Alpine Static
+name: Build PRoot - All Platforms
 
 on:
   push:
     branches: [ main, master ]
+    tags: [ 'v*' ]
+  workflow_dispatch:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
-    container: alpine:latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Alpine (musl) - Static
+          - os: ubuntu-latest
+            container: alpine:latest
+            name: alpine-musl-x86_64
+            arch: x86_64
+            static: true
+            
+          # Alpine ARM64
+          - os: ubuntu-latest
+            container: arm64v8/alpine:latest
+            name: alpine-musl-arm64
+            arch: arm64
+            static: true
+            
+          # Ubuntu (glibc) - Dynamic
+          - os: ubuntu-latest
+            container: ubuntu:22.04
+            name: ubuntu-glibc-x86_64
+            arch: x86_64
+            static: false
+            
+          # Arch Linux
+          - os: ubuntu-latest
+            container: archlinux:latest
+            name: arch-glibc-x86_64
+            arch: x86_64
+            static: false
+            
+          # Debian
+          - os: ubuntu-latest
+            container: debian:12
+            name: debian-glibc-x86_64
+            arch: x86_64
+            static: false
+
+    runs-on: ${{ matrix.os }}
+    container: ${{ matrix.container }}
     
     steps:
-      - name: Install git first
+      - name: Install git (Alpine)
+        if: contains(matrix.container, 'alpine')
         run: apk add --no-cache git
+        
+      - name: Install git (Ubuntu/Debian)
+        if: contains(matrix.container, 'ubuntu') || contains(matrix.container, 'debian')
+        run: apt-get update && apt-get install -y git
+        
+      - name: Install git (Arch)
+        if: contains(matrix.container, 'archlinux')
+        run: pacman -Sy --noconfirm git
         
       - uses: actions/checkout@v4
       
-      - name: Install dependencies
+      - name: Install dependencies (Alpine)
+        if: contains(matrix.container, 'alpine')
         run: |
           apk add --no-cache \
             make gcc musl-dev linux-headers \
@@ -23,24 +74,93 @@ jobs:
             libarchive-static talloc-static \
             bsd-compat-headers
       
+      - name: Install dependencies (Ubuntu/Debian)
+        if: contains(matrix.container, 'ubuntu') || contains(matrix.container, 'debian')
+        run: |
+          apt-get update
+          apt-get install -y \
+            make gcc libarchive-dev libtalloc-dev \
+            uthash-dev libarchive-tools
+      
+      - name: Install dependencies (Arch)
+        if: contains(matrix.container, 'archlinux')
+        run: |
+          pacman -Sy --noconfirm \
+            make gcc libarchive talloc uthash \
+            linux-headers
+      
       - name: Apply fixes
         run: |
-          sed -i '1i #include <libgen.h>' src/cli/cli.c
-          sed -i '/^#include/i #include "mem.h"' src/tracee/tracee.c
+          sed -i '1i #include <libgen.h>' src/cli/cli.c || true
+          sed -i '/^#include/i #include "mem.h"' src/tracee/tracee.c || true
       
       - name: Build loader
         run: make -C src loader.elf build.h
       
-      - name: Build proot static
+      - name: Build proot (static)
+        if: matrix.static
         run: |
           make -C src \
             CFLAGS="-O3 -static" \
             LDFLAGS="-static -ltalloc" \
             proot
       
-      - name: Upload
+      - name: Build proot (dynamic)
+        if: !matrix.static
+        run: make -C src proot
+      
+      - name: Rename binary
+        run: |
+          mv src/proot proot-${{ matrix.name }}
+          chmod +x proot-${{ matrix.name }}
+      
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: proot-alpine-static
-          path: src/proot
-          
+          name: proot-${{ matrix.name }}
+          path: proot-${{ matrix.name }}
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      
+      - name: List artifacts
+        run: ls -lh artifacts/
+      
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: artifacts/proot-*
+          generate_release_notes: true
+          name: "PRoot ${{ github.ref_name }} - Multi Platform"
+          body: |
+            ## PRoot Static & Dynamic Builds
+            
+            ### Available Builds:
+            | Platform | Architecture | Type |
+            |----------|-------------|------|
+            | Alpine Linux | x86_64 | Static (musl) |
+            | Alpine Linux | ARM64 | Static (musl) |
+            | Ubuntu | x86_64 | Dynamic (glibc) |
+            | Arch Linux | x86_64 | Dynamic (glibc) |
+            | Debian | x86_64 | Dynamic (glibc) |
+            
+            ### Static vs Dynamic:
+            - **Static**: No dependencies, runs anywhere
+            - **Dynamic**: Smaller, requires system libraries
+            
+            ### Usage:
+            ```bash
+            chmod +x proot-*
+            ./proot-alpine-musl-x86_64 --version
+            ```
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
