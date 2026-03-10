@@ -1,4 +1,4 @@
-name: Build Static Binaries (Ubuntu)
+name: Build Static Binaries (Ubuntu Fixed)
 
 on:
   workflow_dispatch:
@@ -21,18 +21,20 @@ jobs:
       - name: Build Static PRoot
         run: |
           cd src
-          # الحقن لملفات الهيدر اللي وقفتنا قبل كدة (للاحتياط)
+          
+          # 1. إزالة أي محاولة لاستدعاء Python من الماكفيل تماماً
+          sed -i 's/HAS_PYTHON_EXTENSION :=.*/HAS_PYTHON_EXTENSION := 0/g' GNUmakefile
+          sed -i 's/CHECK_PYTHON_CONFIG :=.*/CHECK_PYTHON_CONFIG := 0/g' GNUmakefile
+          
+          # 2. حقن الهيدرات اللي كانت بتعمل Errors في النسخ اللي فاتت
           sed -i '1i #include <libgen.h>' cli/cli.c
           sed -i '1i #include "../ptrace/ptrace.h"\n#include "../tracee/reg.h"' tracee/tracee.c
           
           make clean
           
-          # أهم سطر: بنعطل البايثون وبنطلب بناء Static كامل
-          # بنصفر PYTHON_VERSION عشان ميدورش عليها
+          # 3. البناء باستخدام الـ Cross-compiler وطلب Static
           make CROSS_COMPILE=aarch64-linux-gnu- \
                LDFLAGS="-static" \
-               PYTHON_VERSION=0 \
-               CARE_VERSION=0 \
                V=1
                
           mv proot ../proot-aarch64-static
