@@ -14,8 +14,6 @@ jobs:
         run: apk add --no-cache git
         
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
       
       - name: Install dependencies
         run: |
@@ -23,21 +21,26 @@ jobs:
             make gcc musl-dev linux-headers \
             libarchive-dev talloc-dev uthash-dev \
             libarchive-static talloc-static \
-            bsd-compat-headers  # <-- مهم عشان sys/queue.h
+            bsd-compat-headers
       
       - name: Apply fixes
         run: |
           sed -i '1i #include <libgen.h>' src/cli/cli.c
           sed -i '/^#include/i #include "mem.h"' src/tracee/tracee.c
       
-      - name: Build
+      - name: Build loader
+        run: make -C src loader.elf build.h
+      
+      - name: Build proot static
         run: |
-          make -C src loader.elf build.h
-          make -C src CFLAGS="-O3 -static" LDFLAGS="-static" proot
+          make -C src \
+            CFLAGS="-O3 -static" \
+            LDFLAGS="-static -ltalloc" \
+            proot
       
       - name: Upload
         uses: actions/upload-artifact@v4
         with:
-          name: proot-static
+          name: proot-alpine-static
           path: src/proot
           
