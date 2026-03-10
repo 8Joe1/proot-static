@@ -24,13 +24,12 @@ jobs:
         arch: aarch64
         distro: alpine_latest
         githubToken: ${{ github.token }}
+        install: |
+          apk update
+          apk add git gcc musl-dev make linux-headers talloc-dev talloc-static bsd-compat-headers
         run: |
           # إصلاح ملكية Git
           git config --global --add safe.directory /home/runner/work/proot-static/proot-static
-          
-          apk update
-          # bsd-compat-headers تحتوي على sys/queue.h
-          apk add gcc musl-dev make git linux-headers talloc-dev talloc-static bsd-compat-headers
           
           cd src
           make clean || true
