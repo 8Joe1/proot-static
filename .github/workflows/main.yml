@@ -16,14 +16,23 @@ jobs:
       - name: Install Cross-Compiler
         run: |
           sudo apt-get update
-          sudo apt-get install -y gcc-aarch64-linux-gnu libtalloc-dev git make
+          sudo apt-get install -y gcc-aarch64-linux-gnu git make libtalloc-dev
 
       - name: Build Static PRoot
         run: |
           cd src
+          # الحقن لملفات الهيدر اللي وقفتنا قبل كدة (للاحتياط)
+          sed -i '1i #include <libgen.h>' cli/cli.c
+          sed -i '1i #include "../ptrace/ptrace.h"\n#include "../tracee/reg.h"' tracee/tracee.c
+          
           make clean
-          # بنستخدم الـ Cross compiler وبنطلب Static linking
-          make CROSS_COMPILE=aarch64-linux-gnu- LDFLAGS="-static" V=1
+          
+          # أهم سطر: بنعطل البايثون وبنطلب بناء Static
+          make CROSS_COMPILE=aarch64-linux-gnu- \
+               LDFLAGS="-static" \
+               PYTHON_VERSION=0 \
+               V=1
+               
           mv proot ../proot-aarch64-static
 
       - name: Upload Artifact
