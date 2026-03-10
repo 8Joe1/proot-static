@@ -3,8 +3,6 @@ name: Build PRoot Alpine Static
 on:
   push:
     branches: [ main, master ]
-  pull_request:
-    branches: [ main, master ]
 
 jobs:
   build:
@@ -12,14 +10,20 @@ jobs:
     container: alpine:latest
     
     steps:
+      - name: Install git first
+        run: apk add --no-cache git
+        
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       
       - name: Install dependencies
         run: |
           apk add --no-cache \
-            git make gcc musl-dev linux-headers \
+            make gcc musl-dev linux-headers \
             libarchive-dev talloc-dev uthash-dev \
-            libarchive-static talloc-static
+            libarchive-static talloc-static \
+            bsd-compat-headers  # <-- مهم عشان sys/queue.h
       
       - name: Apply fixes
         run: |
