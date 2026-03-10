@@ -1,4 +1,4 @@
-name: Build Static Binaries
+name: Build Static Binaries (Ubuntu)
 
 on:
   workflow_dispatch:
@@ -7,51 +7,27 @@ on:
       - master
 
 jobs:
-  build:
-    name: Build for ${{ matrix.arch }}
+  build-aarch64:
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        arch: [aarch64, armv7, x86_64]
-
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Build Static PRoot via QEMU
-        uses: uraimo/run-on-arch-action@v2
-        with:
-          arch: ${{ matrix.arch }}
-          distro: alpine_latest
-          run: |
-            # 1. تحديث وتنصيب الأدوات اللازمة للـ Static Build
-            apk update
-            apk add build-base linux-headers talloc-dev talloc-static coreutils make pkgconf bsd-compat-headers git
-            
-            # 2. حل مشكلة أمان Git لضمان قراءة النسخة صح
-            git config --global --add safe.directory /home/runner/work/proot-static/proot-static
-            
-            # 3. "حقن" الهيدرات الناقصة (Patching on the fly)
-            # حل مشكلة دالة basename في Alpine
-            sed -i '1i #include <libgen.h>' src/cli/cli.c
-            
-            # حل مشكلة peek_word و ptrace في tracee.c
-            sed -i '1i #include "../ptrace/ptrace.h"\n#include "../tracee/reg.h"' src/tracee/tracee.c
-            
-            # 4. عملية البناء الفعلي
-            cd src
-            make clean
-            
-            # إجبار اللينكر على دمج كل المكتبات (Static Linking)
-            make LDFLAGS="-static" V=1
-            
-            # 5. تسمية ونقل الملف النهائي
-            mv proot ../proot-${{ matrix.arch }}-static
+      - name: Install Cross-Compiler
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu libtalloc-dev git make
+
+      - name: Build Static PRoot
+        run: |
+          cd src
+          make clean
+          # بنستخدم الـ Cross compiler وبنطلب Static linking
+          make CROSS_COMPILE=aarch64-linux-gnu- LDFLAGS="-static" V=1
+          mv proot ../proot-aarch64-static
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: proot-${{ matrix.arch }}-static
-          path: proot-${{ matrix.arch }}-static
-          
+          name: proot-aarch64-static
+          path: proot-aarch64-static
