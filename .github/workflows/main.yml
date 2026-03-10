@@ -5,7 +5,6 @@ on:
     branches: [ main, master ]
   pull_request:
     branches: [ main, master ]
-  workflow_dispatch:
 
 jobs:
   build:
@@ -13,64 +12,28 @@ jobs:
     container: alpine:latest
     
     steps:
-    - uses: actions/checkout@v4
-    
-    - name: Install dependencies
-      run: |
-        apk add --no-cache \
-          git make gcc musl-dev linux-headers \
-          libarchive-dev talloc-dev uthash-dev \
-          libarchive-static talloc-static \
-          file
+      - uses: actions/checkout@v4
       
-    - name: Apply Alpine fixes
-      run: |
-        # Fix basename
-        sed -i '1i #include <libgen.h>' src/cli/cli.c
-        
-        # Fix peek_word
-        sed -i '/^#include/i #include "mem.h"' src/tracee/tracee.c
-    
-    - name: Build loader
-      run: make -C src loader.elf build.h
+      - name: Install dependencies
+        run: |
+          apk add --no-cache \
+            git make gcc musl-dev linux-headers \
+            libarchive-dev talloc-dev uthash-dev \
+            libarchive-static talloc-static
       
-    - name: Build proot (static)
-      run: make -C src CFLAGS="-O3 -static" LDFLAGS="-static" proot
+      - name: Apply fixes
+        run: |
+          sed -i '1i #include <libgen.h>' src/cli/cli.c
+          sed -i '/^#include/i #include "mem.h"' src/tracee/tracee.c
       
-    - name: Build care (static)
-      run: make -C src CFLAGS="-O3 -static" LDFLAGS="-static" care
-      continue-on-error: true
+      - name: Build
+        run: |
+          make -C src loader.elf build.h
+          make -C src CFLAGS="-O3 -static" LDFLAGS="-static" proot
       
-    - name: Check binaries
-      run: |
-        file src/proot
-        src/proot --version
-      
-    - name: Upload artifacts
-      uses: actions/upload-artifact@v4
-      with:
-        name: proot-alpine-static-${{ github.sha }}
-        path: |
-          src/proot
-          src/care
-          loader/loader
-        export CFLAGS="-O2 -static -D_FILE_OFFSET_BITS=64 -D_GNU_SOURCE -I/tmp/talloc-aarch64/include -Wno-deprecated-declarations"
-        export LDFLAGS="-static -L/tmp/talloc-aarch64/lib"
-        make -j$(nproc) \
-          CROSS_COMPILE=aarch64-linux-gnu- \
-          LIBS="-ltalloc" \
-          PYTHON=""
-
-    - name: Check and upload
-      run: |
-        cd src
-        file proot
-        aarch64-linux-gnu-strip proot
-        ls -la proot
-
-    - name: Upload artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: proot-static-aarch64
-        path: src/proot
-        if-no-files-found: error
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: proot-static
+          path: src/proot
+          
