@@ -27,10 +27,12 @@ jobs:
           
           make clean
           
-          # أهم سطر: بنعطل البايثون وبنطلب بناء Static
+          # أهم سطر: بنعطل البايثون وبنطلب بناء Static كامل
+          # بنصفر PYTHON_VERSION عشان ميدورش عليها
           make CROSS_COMPILE=aarch64-linux-gnu- \
                LDFLAGS="-static" \
                PYTHON_VERSION=0 \
+               CARE_VERSION=0 \
                V=1
                
           mv proot ../proot-aarch64-static
