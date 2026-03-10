@@ -1,0 +1,43 @@
+name: Build Static Binaries
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master
+
+jobs:
+  build:
+    name: Build for ${{ matrix.arch }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [aarch64, armv7, x86_64]
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Build Static PRoot via QEMU
+        uses: uraimo/run-on-arch-action@v2
+        with:
+          arch: ${{ matrix.arch }}
+          distro: alpine_latest
+          run: |
+            apk update
+            apk add build-base linux-headers talloc-dev talloc-static coreutils make pkgconf
+            cd src
+            make clean
+            make LDFLAGS="-static"
+            mv proot ../proot-${{ matrix.arch }}-static
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: proot-${{ matrix.arch }}-static
+          path: proot-${{ matrix.arch }}-static
+          
