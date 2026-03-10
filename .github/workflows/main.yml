@@ -26,7 +26,8 @@ jobs:
           distro: alpine_latest
           run: |
             apk update
-            apk add build-base linux-headers talloc-dev talloc-static coreutils make pkgconf
+            # زودنا bsd-compat-headers و git و libarchive-static لو محتاجها
+            apk add build-base linux-headers talloc-dev talloc-static coreutils make pkgconf bsd-compat-headers git
             cd src
             make clean
             make LDFLAGS="-static"
