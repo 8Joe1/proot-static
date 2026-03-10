@@ -1,4 +1,4 @@
-name: Build Static Binaries (Alpine)
+name: Build Static Binaries (Alpine Fixed)
 
 on:
   push:
@@ -18,15 +18,6 @@ jobs:
         fetch-depth: 0
         fetch-tags: true
 
-    - name: Setup Git
-      run: |
-        git config --global --add safe.directory "$GITHUB_WORKSPACE"
-        if [ -z "$(git tag -l)" ]; then
-          git config user.email "ci@example.com"
-          git config user.name "CI Bot"
-          git tag -a "v0.0.1-temp" -m "Temporary tag for build"
-        fi
-
     - name: Build in Alpine ARM64 container
       uses: uraimo/run-on-arch-action@v2
       with:
@@ -34,13 +25,17 @@ jobs:
         distro: alpine_latest
         githubToken: ${{ github.token }}
         run: |
+          # إصلاح ملكية Git
+          git config --global --add safe.directory /home/runner/work/proot-static/proot-static
+          
           apk update
-          apk add gcc musl-dev make git linux-headers talloc-dev talloc-static
+          # bsd-compat-headers تحتوي على sys/queue.h
+          apk add gcc musl-dev make git linux-headers talloc-dev talloc-static bsd-compat-headers
           
           cd src
           make clean || true
           
-          # Alpine uses musl which is better for static linking
+          # البناء مع musl (static by default)
           make -j$(nproc) \
             CFLAGS="-O2 -static -D_FILE_OFFSET_BITS=64 -D_GNU_SOURCE" \
             LDFLAGS="-static" \
