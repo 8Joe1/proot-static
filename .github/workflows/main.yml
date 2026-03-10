@@ -25,12 +25,24 @@ jobs:
           arch: ${{ matrix.arch }}
           distro: alpine_latest
           run: |
+            # 1. تحديث وتنصيب الأدوات اللازمة
             apk update
-            # زودنا bsd-compat-headers و git و libarchive-static لو محتاجها
             apk add build-base linux-headers talloc-dev talloc-static coreutils make pkgconf bsd-compat-headers git
+            
+            # 2. حل مشكلة أمان Git في الحاوية
+            git config --global --add safe.directory /home/runner/work/proot-static/proot-static
+            
+            # 3. معالجة الكود ليتوافق مع Alpine (دالة basename)
+            # بنحشر هيدر libgen.h في ملف cli.c عشان الـ Compiler يشوف الدالة صح
+            sed -i '1i #include <libgen.h>' src/cli/cli.c
+            
             cd src
             make clean
+            
+            # 4. البناء الـ Static الكامل
             make LDFLAGS="-static"
+            
+            # 5. تحضير الملف النهائي للرفع
             mv proot ../proot-${{ matrix.arch }}-static
 
       - name: Upload Artifact
@@ -38,4 +50,3 @@ jobs:
         with:
           name: proot-${{ matrix.arch }}-static
           path: proot-${{ matrix.arch }}-static
-#Joe
