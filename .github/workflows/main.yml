@@ -1,4 +1,4 @@
-name: Build Static Binaries (Ubuntu Fixed)
+name: Build Static Binaries (Docker)
 
 on:
   push:
@@ -18,67 +18,33 @@ jobs:
         fetch-depth: 0
         fetch-tags: true
 
-    - name: Setup Git safe directory
-      run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
-
-    - name: Install dependencies
+    - name: Setup Git
       run: |
-        sudo dpkg --add-architecture arm64
-        sudo apt-get update
-        sudo apt-get install -y \
-          gcc-aarch64-linux-gnu \
-          libc6-dev-arm64-cross \
-          libtalloc-dev:arm64 \
-          libtalloc2:arm64 \
-          libtalloc2-dev:arm64 \
-          libarchive-dev:arm64 \
-          libpython3-dev:arm64 \
-          python3-dev \
-          python3 \
-          git \
-          make \
-          pkg-config
-
-    - name: Create dummy git tag if none exists
-      run: |
+        git config --global --add safe.directory "$GITHUB_WORKSPACE"
         if [ -z "$(git tag -l)" ]; then
-          echo "No tags found, creating temporary tag..."
           git config user.email "ci@example.com"
           git config user.name "CI Bot"
           git tag -a "v0.0.1-temp" -m "Temporary tag for build"
         fi
-        git describe --tags --always
 
-    - name: Build static binary
-      run: |
-        cd src
-        
-        export CC=aarch64-linux-gnu-gcc
-        export CXX=aarch64-linux-gnu-g++
-        export AR=aarch64-linux-gnu-ar
-        
-        # الحصول على flags Python
-        PYTHON_CFLAGS=$(python3-config --cflags 2>/dev/null || echo "-I/usr/include/python3.10")
-        PYTHON_LIBS=$(python3-config --ldflags --embed 2>/dev/null || python3-config --ldflags 2>/dev/null || echo "-lpython3.10")
-        
-        make clean || true
-        
-        make -j$(nproc) \
-          CROSS_COMPILE=aarch64-linux-gnu- \
-          CFLAGS="-D_FILE_OFFSET_BITS=64 -D_GNU_SOURCE -O2 -static $PYTHON_CFLAGS -Wno-deprecated-declarations" \
-          LDFLAGS="-static $PYTHON_LIBS" \
-          HAVE_PYTHON_EXTENSION=1
-
-    - name: Strip and upload
-      run: |
-        cd src
-        file proot || true
-        aarch64-linux-gnu-strip proot || true
-        ls -la proot
+    - name: Build in ARM64 Docker container
+      uses: uraimo/run-on-arch-action@v2
+      with:
+        arch: aarch64
+        distro: ubuntu22.04
+        githubToken: ${{ github.token }}
+        run: |
+          apt-get update
+          apt-get install -y gcc make git libtalloc-dev libarchive-dev pkg-config
+          cd src
+          make clean || true
+          make -j$(nproc) CFLAGS="-O2 -static" LDFLAGS="-static" PYTHON=""
+          strip proot
+          file proot
 
     - name: Upload artifact
       uses: actions/upload-artifact@v4
       with:
         name: proot-static-aarch64
         path: src/proot
-        if-no-files-found: warn
+        if-no-files-found: error
