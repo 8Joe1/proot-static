@@ -1,4 +1,4 @@
-name: Build Static Binaries (Docker)
+name: Build Static Binaries (Cross Compile)
 
 on:
   push:
@@ -27,20 +27,51 @@ jobs:
           git tag -a "v0.0.1-temp" -m "Temporary tag for build"
         fi
 
-    - name: Build in ARM64 Docker container
-      uses: uraimo/run-on-arch-action@v2
-      with:
-        arch: aarch64
-        distro: ubuntu22.04
-        githubToken: ${{ github.token }}
-        run: |
-          apt-get update
-          apt-get install -y gcc make git libtalloc-dev libarchive-dev pkg-config
-          cd src
-          make clean || true
-          make -j$(nproc) CFLAGS="-O2 -static" LDFLAGS="-static" PYTHON=""
-          strip proot
-          file proot
+    - name: Install cross compiler
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y gcc-aarch64-linux-gnu make git wget
+
+    - name: Build libtalloc for aarch64
+      run: |
+        mkdir -p /tmp/talloc-build
+        cd /tmp/talloc-build
+        
+        wget https://www.samba.org/ftp/talloc/talloc-2.4.0.tar.gz
+        tar -xzf talloc-2.4.0.tar.gz
+        cd talloc-2.4.0
+        
+        # Cross compile libtalloc static
+        CC=aarch64-linux-gnu-gcc \
+        ./configure --host=aarch64-linux-gnu \
+                    --disable-shared \
+                    --enable-static \
+                    --prefix=/tmp/talloc-aarch64
+        make
+        make install
+        
+        ls -la /tmp/talloc-aarch64/lib/
+
+    - name: Build proot
+      run: |
+        cd src
+        make clean || true
+        
+        export CC=aarch64-linux-gnu-gcc
+        export CFLAGS="-O2 -static -D_FILE_OFFSET_BITS=64 -D_GNU_SOURCE -I/tmp/talloc-aarch64/include"
+        export LDFLAGS="-static -L/tmp/talloc-aarch64/lib"
+        
+        make -j$(nproc) \
+          CROSS_COMPILE=aarch64-linux-gnu- \
+          LIBS="-ltalloc" \
+          PYTHON=""
+
+    - name: Check and upload
+      run: |
+        cd src
+        file proot
+        aarch64-linux-gnu-strip proot
+        ls -la proot
 
     - name: Upload artifact
       uses: actions/upload-artifact@v4
