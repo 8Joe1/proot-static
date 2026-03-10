@@ -2,256 +2,77 @@ name: Build Static Binaries (Ubuntu Fixed)
 
 on:
   push:
-    branches: [main, master]
+    branches: [ main, master ]
   pull_request:
-    branches: [main, master]
+    branches: [ main, master ]
   workflow_dispatch:
 
 jobs:
   build-aarch64:
     runs-on: ubuntu-latest
+    
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          fetch-tags: true
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0  # مهم: يجلب كل الـ history والـ tags
+        fetch-tags: true  # يجلب الـ tags صراحةً
 
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            gcc-aarch64-linux-gnu \
-            g++-aarch64-linux-gnu \
-            qemu-user-static \
-            binfmt-support \
-            qemu-user \
-            libtalloc-dev:arm64 \
-            python3-dev \
-            python3-setuptools \
-            swig \
-            git \
-            make \
-            pkg-config \
-            libarchive-tools
+    - name: Setup Git safe directory
+      run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
-      - name: Fix git describe issue
-        run: |
-          # Create a dummy tag if no tags exist to fix "fatal: No names found, cannot describe anything"
-          if [ -z "$(git tag -l)" ]; then
-            echo "No tags found, creating dummy tag v0.0.1"
-            git config user.email "actions@github.com"
-            git config user.name "GitHub Actions"
-            git tag v0.0.1 $(git rev-parse HEAD)
-          fi
-          
-          # Verify git describe works now
-          echo "Git describe output: $(git describe --tags --always 2>/dev/null || echo 'still failing')"
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          gcc-aarch64-linux-gnu \
+          libc6-dev-arm64-cross \
+          libtalloc-dev \
+          libtalloc2 \
+          python3-dev \
+          python3 \
+          git \
+          make \
+          pkg-config
 
-      - name: Build static binary for aarch64
-        run: |
-          cd src
-          
-          # Set cross-compilation environment variables
-          export CC=aarch64-linux-gnu-gcc
-          export CXX=aarch64-linux-gnu-g++
-          export AR=aarch64-linux-gnu-ar
-          export STRIP=aarch64-linux-gnu-strip
-          export CFLAGS="-static -O2"
-          export LDFLAGS="-static"
-          
-          # Build with corrected git version
-          make clean 2>/dev/null || true
-          make -j$(nproc) \
-            CC="${CC}" \
-            CFLAGS="${CFLAGS} -D_FILE_OFFSET_BITS=64 -D_GNU_SOURCE" \
-            LDFLAGS="${LDFLAGS}" \
-            STATIC=1
+    - name: Create dummy git tag if none exists
+      run: |
+        # التحقق من وجود tags، وإذا لا يوجد، ننشئ واحداً مؤقتاً
+        if [ -z "$(git tag -l)" ]; then
+          echo "No tags found, creating temporary tag..."
+          git config user.email "ci@example.com"
+          git config user.name "CI Bot"
+          git tag -a "v0.0.1-temp" -m "Temporary tag for build"
+        fi
+        # التحقق من أن git describe يعمل الآن
+        git describe --tags --always
 
-      - name: Strip binary
-        run: |
-          cd src
-          if [ -f proot ]; then
-            aarch64-linux-gnu-strip proot
-            file proot
-            ls -la proot
-          fi
+    - name: Build
+      run: |
+        cd src
+        # تعيين المتغيرات البيئية للـ cross-compilation
+        export CC=aarch64-linux-gnu-gcc
+        export CXX=aarch64-linux-gnu-g++
+        export AR=aarch64-linux-gnu-ar
+        export STRIP=aarch64-linux-gnu-strip
+        
+        # تنظيف أي بناء سابق
+        make clean || true
+        
+        # البناء مع تمرير FLAGS لتجنب بعض التحذيرات
+        make -j$(nproc) \
+          CFLAGS="-D_FILE_OFFSET_BITS=64 -D_GNU_SOURCE -O2 -Wno-deprecated-declarations -Wno-stringop-truncation" \
+          LDFLAGS="-static"
 
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: proot-static-aarch64
-          path: src/proot
-          if-no-files-found: warn
+    - name: Strip binary
+      run: |
+        cd src
+        aarch64-linux-gnu-strip proot || true
+        file proot || true
 
-  build-x86_64:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          fetch-tags: true
-
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            gcc \
-            g++ \
-            libtalloc-dev \
-            python3-dev \
-            python3-setuptools \
-            swig \
-            git \
-            make \
-            pkg-config \
-            libarchive-tools
-
-      - name: Fix git describe issue
-        run: |
-          # Create a dummy tag if no tags exist to fix "fatal: No names found, cannot describe anything"
-          if [ -z "$(git tag -l)" ]; then
-            echo "No tags found, creating dummy tag v0.0.1"
-            git config user.email "actions@github.com"
-            git config user.name "GitHub Actions"
-            git tag v0.0.1 $(git rev-parse HEAD)
-          fi
-          
-          # Verify git describe works now
-          echo "Git describe output: $(git describe --tags --always 2>/dev/null || echo 'still failing')"
-
-      - name: Build static binary for x86_64
-        run: |
-          cd src
-          
-          # Set static build environment variables
-          export CFLAGS="-static -O2"
-          export LDFLAGS="-static"
-          
-          # Build with corrected git version
-          make clean 2>/dev/null || true
-          make -j$(nproc) \
-            CFLAGS="${CFLAGS} -D_FILE_OFFSET_BITS=64 -D_GNU_SOURCE" \
-            LDFLAGS="${LDFLAGS}" \
-            STATIC=1
-
-      - name: Strip binary
-        run: |
-          cd src
-          if [ -f proot ]; then
-            strip proot
-            file proot
-            ls -la proot
-          fi
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: proot-static-x86_64
-          path: src/proot
-          if-no-files-found: warn
-
-  build-armhf:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          fetch-tags: true
-
-      - name: Install dependencies
-        run: |
-          sudo dpkg --add-architecture armhf
-          sudo apt-get update
-          sudo apt-get install -y \
-            gcc-arm-linux-gnueabihf \
-            g++-arm-linux-gnueabihf \
-            qemu-user-static \
-            binfmt-support \
-            qemu-user \
-            libtalloc-dev:armhf \
-            python3-dev \
-            python3-setuptools \
-            swig \
-            git \
-            make \
-            pkg-config \
-            libarchive-tools
-
-      - name: Fix git describe issue
-        run: |
-          # Create a dummy tag if no tags exist to fix "fatal: No names found, cannot describe anything"
-          if [ -z "$(git tag -l)" ]; then
-            echo "No tags found, creating dummy tag v0.0.1"
-            git config user.email "actions@github.com"
-            git config user.name "GitHub Actions"
-            git tag v0.0.1 $(git rev-parse HEAD)
-          fi
-          
-          # Verify git describe works now
-          echo "Git describe output: $(git describe --tags --always 2>/dev/null || echo 'still failing')"
-
-      - name: Build static binary for armhf
-        run: |
-          cd src
-          
-          # Set cross-compilation environment variables
-          export CC=arm-linux-gnueabihf-gcc
-          export CXX=arm-linux-gnueabihf-g++
-          export AR=arm-linux-gnueabihf-ar
-          export STRIP=arm-linux-gnueabihf-strip
-          export CFLAGS="-static -O2"
-          export LDFLAGS="-static"
-          
-          # Build with corrected git version
-          make clean 2>/dev/null || true
-          make -j$(nproc) \
-            CC="${CC}" \
-            CFLAGS="${CFLAGS} -D_FILE_OFFSET_BITS=64 -D_GNU_SOURCE" \
-            LDFLAGS="${LDFLAGS}" \
-            STATIC=1
-
-      - name: Strip binary
-        run: |
-          cd src
-          if [ -f proot ]; then
-            arm-linux-gnueabihf-strip proot
-            file proot
-            ls -la proot
-          fi
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: proot-static-armhf
-          path: src/proot
-          if-no-files-found: warn
-
-  release:
-    needs: [build-aarch64, build-x86_64, build-armhf]
-    runs-on: ubuntu-latest
-    if: github.event_name == 'push' && contains(github.ref, 'refs/tags/')
-    steps:
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: artifacts
-
-      - name: Prepare release files
-        run: |
-          mkdir -p release
-          cp artifacts/proot-static-aarch64/proot release/proot-aarch64
-          cp artifacts/proot-static-x86_64/proot release/proot-x86_64
-          cp artifacts/proot-static-armhf/proot release/proot-armhf
-          ls -la release/
-
-      - name: Create Release
-        uses: softprops/action-gh-release@v1
-        with:
-          files: release/*
-          draft: false
-          prerelease: false
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: proot-static-aarch64
+        path: src/proot
+        if-no-files-found: error
