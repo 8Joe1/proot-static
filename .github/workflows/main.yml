@@ -25,24 +25,28 @@ jobs:
           arch: ${{ matrix.arch }}
           distro: alpine_latest
           run: |
-            # 1. تحديث وتنصيب الأدوات اللازمة
+            # 1. تحديث وتنصيب الأدوات اللازمة للـ Static Build
             apk update
             apk add build-base linux-headers talloc-dev talloc-static coreutils make pkgconf bsd-compat-headers git
             
-            # 2. حل مشكلة أمان Git في الحاوية
+            # 2. حل مشكلة أمان Git لضمان قراءة النسخة صح
             git config --global --add safe.directory /home/runner/work/proot-static/proot-static
             
-            # 3. معالجة الكود ليتوافق مع Alpine (دالة basename)
-            # بنحشر هيدر libgen.h في ملف cli.c عشان الـ Compiler يشوف الدالة صح
+            # 3. "حقن" الهيدرات الناقصة (Patching on the fly)
+            # حل مشكلة دالة basename في Alpine
             sed -i '1i #include <libgen.h>' src/cli/cli.c
             
+            # حل مشكلة peek_word و ptrace في tracee.c
+            sed -i '1i #include "../ptrace/ptrace.h"\n#include "../tracee/reg.h"' src/tracee/tracee.c
+            
+            # 4. عملية البناء الفعلي
             cd src
             make clean
             
-            # 4. البناء الـ Static الكامل
-            make LDFLAGS="-static"
+            # إجبار اللينكر على دمج كل المكتبات (Static Linking)
+            make LDFLAGS="-static" V=1
             
-            # 5. تحضير الملف النهائي للرفع
+            # 5. تسمية ونقل الملف النهائي
             mv proot ../proot-${{ matrix.arch }}-static
 
       - name: Upload Artifact
@@ -50,3 +54,4 @@ jobs:
         with:
           name: proot-${{ matrix.arch }}-static
           path: proot-${{ matrix.arch }}-static
+          
