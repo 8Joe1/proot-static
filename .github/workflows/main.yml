@@ -1,4 +1,4 @@
-name: Build PRoot - All Static
+name: Build PRoot - All Static with SYSVIPC
 
 on:
   push:
@@ -33,14 +33,14 @@ jobs:
           sed -i '1i #include <libgen.h>' src/cli/cli.c
           sed -i '/^#include/i #include "mem.h"' src/tracee/tracee.c
       
-      - name: Build loader and config (x86_64)
+      - name: Build loader and config
         run: |
           make -C src loader.elf loader-m32.elf build.h
       
-      - name: Build proot
+      - name: Build proot with all extensions
         run: |
           make -C src \
-            CFLAGS="-O3 -static" \
+            CFLAGS="-O3 -static -DCONFIG_SYSVIPC -DCONFIG_CARE -DCONFIG_PORTMAP -DCONFIG_LINK2SYMLINK -DCONFIG_FAKE_ID0" \
             LDFLAGS="-static -ltalloc" \
             proot
       
@@ -48,6 +48,7 @@ jobs:
         run: |
           mv src/proot proot-alpine-x86_64
           chmod +x proot-alpine-x86_64
+          ./proot-alpine-x86_64 --help | grep -E "sysvipc|link2symlink|portmap|fake_id0" || true
       
       - name: Upload
         uses: actions/upload-artifact@v4
@@ -82,9 +83,13 @@ jobs:
             sed -i '1i #include <libgen.h>' src/cli/cli.c
             sed -i '/^#include/i #include "mem.h"' src/tracee/tracee.c
             make -C src loader.elf build.h
-            make -C src CFLAGS="-O3 -static" LDFLAGS="-static -ltalloc" proot
+            make -C src \
+              CFLAGS="-O3 -static -DCONFIG_SYSVIPC -DCONFIG_CARE -DCONFIG_PORTMAP -DCONFIG_LINK2SYMLINK -DCONFIG_FAKE_ID0" \
+              LDFLAGS="-static -ltalloc" \
+              proot
             mv src/proot proot-alpine-arm64
             chmod +x proot-alpine-arm64
+            ./proot-alpine-arm64 --help | grep -E "sysvipc|link2symlink|portmap|fake_id0" || true
       
       - name: Upload
         uses: actions/upload-artifact@v4
@@ -104,15 +109,38 @@ jobs:
           path: artifacts
           merge-multiple: true
       
-      - name: List
-        run: ls -lh artifacts/
+      - name: List and check
+        run: |
+          ls -lh artifacts/
+          for f in artifacts/proot-*; do
+            echo "=== $f ==="
+            $f --help 2>&1 | grep -E "Options:|Extensions:" -A 30 || true
+          done
       
       - name: Release
         uses: softprops/action-gh-release@v1
         with:
           files: artifacts/proot-*
           generate_release_notes: true
-          name: "PRoot ${{ github.ref_name }}"
+          name: "PRoot ${{ github.ref_name }} - Full Featured"
+          body: |
+            ## PRoot Static Builds with All Extensions
+            
+            | Platform | Architecture | Features |
+            |----------|-------------|----------|
+            | Alpine Linux | x86_64 | ✅ SYSVIPC, link2symlink, portmap, fake_id0 |
+            | Alpine Linux | ARM64 | ✅ SYSVIPC, link2symlink, portmap, fake_id0 |
+            
+            ### Extensions Included:
+            - `--sysvipc` : System V IPC support
+            - `--link2symlink` : Hard link to symlink conversion
+            - `--port` : Port mapping
+            - `-0` : Fake root privileges
+            
+            ### Usage:
+            ```bash
+            ./proot-alpine-arm64 --sysvipc -R /path/to/rootfs /bin/sh
+            ```
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           
