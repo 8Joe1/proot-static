@@ -13,7 +13,7 @@ jobs:
     container: alpine:latest
 
     steps:
-      - name: Install tools
+      - name: Install git
         run: apk add --no-cache git
 
       - name: Checkout source
@@ -45,8 +45,11 @@ jobs:
         run: |
           make -C src \
           CFLAGS="-O2 -static -s" \
-          LDFLAGS="-static" \
+          LDFLAGS="-static -ltalloc" \
           -j1 proot
+
+      - name: Strip binary
+        run: strip src/proot
 
       - name: Prepare binary
         run: |
@@ -96,8 +99,10 @@ jobs:
 
             make -C src \
             CFLAGS='-O2 -static -s' \
-            LDFLAGS='-static' \
+            LDFLAGS='-static -ltalloc' \
             -j1 proot
+
+            strip src/proot
 
             cp src/proot proot-alpine-arm64
             chmod +x proot-alpine-arm64
@@ -121,7 +126,7 @@ jobs:
         with:
           merge-multiple: true
 
-      - name: Create GitHub release
+      - name: Create release
         uses: softprops/action-gh-release@v1
         with:
           files: proot-*
