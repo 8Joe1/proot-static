@@ -30,10 +30,16 @@ jobs:
           sed -i '1i #include <libgen.h>' src/cli/cli.c
           sed -i '/^#include/i #include "mem.h"' src/tracee/tracee.c
       
-      - name: Build
+      - name: Build loader and config
         run: |
-          make -C src loader.elf build.h
-          make -C src CFLAGS="-O3 -static" LDFLAGS="-static -ltalloc" proot
+          make -C src loader.elf loader-m32.elf build.h
+      
+      - name: Build proot
+        run: |
+          make -C src \
+            CFLAGS="-O3 -static" \
+            LDFLAGS="-static -ltalloc" \
+            proot
       
       - name: Rename
         run: |
@@ -71,7 +77,7 @@ jobs:
           run: |
             sed -i '1i #include <libgen.h>' src/cli/cli.c
             sed -i '/^#include/i #include "mem.h"' src/tracee/tracee.c
-            make -C src loader.elf build.h
+            make -C src loader.elf loader-m32.elf build.h
             make -C src CFLAGS="-O3 -static" LDFLAGS="-static -ltalloc" proot
             mv src/proot proot-alpine-arm64
             chmod +x proot-alpine-arm64
