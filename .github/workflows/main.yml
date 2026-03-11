@@ -22,14 +22,19 @@ jobs:
             libarchive-static talloc-static \
             bsd-compat-headers
       
-      - name: Build loader and generate build.h
+      - name: Apply fixes
+        run: |
+          sed -i '1i #include <libgen.h>' src/cli/cli.c
+          sed -i '/^#include/i #include "mem.h"' src/tracee/tracee.c
+      
+      - name: Build loader
         run: make -C src loader.elf loader-m32.elf build.h
       
-      - name: Force enable sysvipc in build.h
+      - name: Force sysvipc
         run: |
           sed -i 's/SYSVIPC 0/SYSVIPC 1/g' src/build.h
           sed -i 's/ENABLE_SYSVIPC 0/ENABLE_SYSVIPC 1/g' src/build.h || true
-          cat src/build.h | grep -i sysv
+          grep -i sysv src/build.h
       
       - name: Build proot
         run: make -C src CFLAGS="-O2 -static" LDFLAGS="-static -ltalloc" proot
@@ -37,7 +42,6 @@ jobs:
       - run: |
           cp src/proot proot-alpine-x86_64
           chmod +x proot-alpine-x86_64
-          ./proot-alpine-x86_64 --help | grep sysvipc && echo "✅ SUCCESS" || echo "❌ FAILED"
       
       - uses: actions/upload-artifact@v4
         with:
@@ -60,14 +64,14 @@ jobs:
               apk add --no-cache git make gcc musl-dev linux-headers libarchive-dev talloc-dev uthash-dev libarchive-static talloc-static bsd-compat-headers
               git config --global --add safe.directory /workspace
               
-              # Build loader
-              make -C src loader.elf build.h
+              # Fixes
+              sed -i '1i #include <libgen.h>' src/cli/cli.c
+              sed -i '/^#include/i #include \"mem.h\"' src/tracee/tracee.c
               
-              # Force sysvipc
+              # Build
+              make -C src loader.elf build.h
               sed -i 's/SYSVIPC 0/SYSVIPC 1/g' src/build.h
               sed -i 's/ENABLE_SYSVIPC 0/ENABLE_SYSVIPC 1/g' src/build.h || true
-              
-              # Build proot
               make -C src CFLAGS='-O2 -static' LDFLAGS='-static -ltalloc' proot
               
               cp src/proot proot-alpine-arm64
