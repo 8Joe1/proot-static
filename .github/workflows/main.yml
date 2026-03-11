@@ -39,8 +39,8 @@ jobs:
       
       - name: Build proot with all extensions
         run: |
-          make -C src \
-            CFLAGS="-O3 -static -DCONFIG_SYSVIPC -DCONFIG_CARE -DCONFIG_PORTMAP -DCONFIG_LINK2SYMLINK -DCONFIG_FAKE_ID0" \
+          make -j1 -C src \
+            CFLAGS="-O2 -static -DCONFIG_SYSVIPC -DCONFIG_CARE -DCONFIG_PORTMAP -DCONFIG_LINK2SYMLINK -DCONFIG_FAKE_ID0" \
             LDFLAGS="-static -ltalloc" \
             proot
       
@@ -68,28 +68,20 @@ jobs:
           platforms: arm64
       
       - name: Build in ARM64 container
-        uses: uraimo/run-on-arch-action@v2
-        with:
-          arch: aarch64
-          distro: alpine_latest
-          install: |
-            apk add --no-cache \
-              git make gcc musl-dev linux-headers \
-              libarchive-dev talloc-dev uthash-dev \
-              libarchive-static talloc-static \
-              bsd-compat-headers
-          run: |
-            git config --global --add safe.directory /home/runner/work/proot-static/proot-static
-            sed -i '1i #include <libgen.h>' src/cli/cli.c
-            sed -i '/^#include/i #include "mem.h"' src/tracee/tracee.c
-            make -C src loader.elf build.h
-            make -C src \
-              CFLAGS="-O3 -static -DCONFIG_SYSVIPC -DCONFIG_CARE -DCONFIG_PORTMAP -DCONFIG_LINK2SYMLINK -DCONFIG_FAKE_ID0" \
-              LDFLAGS="-static -ltalloc" \
-              proot
-            mv src/proot proot-alpine-arm64
-            chmod +x proot-alpine-arm64
-            ./proot-alpine-arm64 --help | grep -E "sysvipc|link2symlink|portmap|fake_id0" || true
+        run: |
+          docker run --rm --platform linux/arm64 \
+            -v ${{ github.workspace }}:/workspace \
+            -w /workspace \
+            arm64v8/alpine:latest \
+            sh -c "
+              apk add --no-cache git make gcc musl-dev linux-headers libarchive-dev talloc-dev uthash-dev libarchive-static talloc-static bsd-compat-headers
+              git config --global --add safe.directory /workspace
+              sed -i '1i #include <libgen.h>' src/cli/cli.c
+              sed -i '/^#include/i #include \"mem.h\"' src/tracee/tracee.c
+              make -C src loader.elf build.h
+              make -j1 -C src CFLAGS='-O2 -static -DCONFIG_SYSVIPC -DCONFIG_CARE -DCONFIG_PORTMAP -DCONFIG_LINK2SYMLINK -DCONFIG_FAKE_ID0' LDFLAGS='-static -ltalloc' proot
+              mv src/proot proot-alpine-arm64
+            "
       
       - name: Upload
         uses: actions/upload-artifact@v4
@@ -114,7 +106,8 @@ jobs:
           ls -lh artifacts/
           for f in artifacts/proot-*; do
             echo "=== $f ==="
-            $f --help 2>&1 | grep -E "Options:|Extensions:" -A 30 || true
+            file $f
+            $f --help 2>&1 | grep -E "sysvipc|link2symlink|portmap|fake_id0" || true
           done
       
       - name: Release
@@ -136,11 +129,6 @@ jobs:
             - `--link2symlink` : Hard link to symlink conversion
             - `--port` : Port mapping
             - `-0` : Fake root privileges
-            
-            ### Usage:
-            ```bash
-            ./proot-alpine-arm64 --sysvipc -R /path/to/rootfs /bin/sh
-            ```
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           
