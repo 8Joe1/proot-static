@@ -1,4 +1,4 @@
-name: Build PRoot Static - SYSVIPC Forced
+name: Build PRoot Static
 
 on:
   push:
@@ -7,96 +7,80 @@ on:
   workflow_dispatch:
 
 jobs:
-  build-x86_64:
-    runs-on: ubuntu-latest
-    container: alpine:latest
-    
-    steps:
-      - run: apk add --no-cache git
-      - uses: actions/checkout@v4
-      
-      - run: |
-          apk add --no-cache \
-            make gcc musl-dev linux-headers \
-            libarchive-dev talloc-dev uthash-dev \
-            libarchive-static talloc-static \
-            bsd-compat-headers
-      
-      - name: Apply fixes
-        run: |
-          sed -i '1i #include <libgen.h>' src/cli/cli.c
-          sed -i '/^#include/i #include "mem.h"' src/tracee/tracee.c
-      
-      - name: Build loader
-        run: make -C src loader.elf loader-m32.elf build.h
-      
-      - name: Force sysvipc
-        run: |
-          sed -i 's/SYSVIPC 0/SYSVIPC 1/g' src/build.h
-          sed -i 's/ENABLE_SYSVIPC 0/ENABLE_SYSVIPC 1/g' src/build.h || true
-          grep -i sysv src/build.h
-      
-      - name: Build proot
-        run: make -C src CFLAGS="-O2 -static" LDFLAGS="-static -ltalloc" proot
-      
-      - run: |
-          cp src/proot proot-alpine-x86_64
-          chmod +x proot-alpine-x86_64
-      
-      - uses: actions/upload-artifact@v4
-        with:
-          name: proot-alpine-x86_64
-          path: proot-alpine-x86_64
 
-  build-arm64:
+  build:
     runs-on: ubuntu-latest
-    
+    strategy:
+      matrix:
+        arch: [x86_64, arm64]
+
     steps:
-      - uses: actions/checkout@v4
-      - uses: docker/setup-qemu-action@v3
-      
-      - run: |
-          docker run --rm --platform linux/arm64 \
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Setup QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Build static PRoot
+        run: |
+          if [ "${{ matrix.arch }}" = "arm64" ]; then
+            PLATFORM="linux/arm64"
+            IMAGE="arm64v8/alpine"
+            OUT="proot-alpine-arm64"
+          else
+            PLATFORM="linux/amd64"
+            IMAGE="alpine"
+            OUT="proot-alpine-x86_64"
+          fi
+
+          docker run --rm --platform $PLATFORM \
             -v ${{ github.workspace }}:/workspace \
             -w /workspace \
-            arm64v8/alpine:latest \
-            sh -c "
-              apk add --no-cache git make gcc musl-dev linux-headers libarchive-dev talloc-dev uthash-dev libarchive-static talloc-static bsd-compat-headers
-              git config --global --add safe.directory /workspace
-              
-              # Fixes
-              sed -i '1i #include <libgen.h>' src/cli/cli.c
-              sed -i '/^#include/i #include \"mem.h\"' src/tracee/tracee.c
-              
-              # Build
-              make -C src loader.elf build.h
-              sed -i 's/SYSVIPC 0/SYSVIPC 1/g' src/build.h
-              sed -i 's/ENABLE_SYSVIPC 0/ENABLE_SYSVIPC 1/g' src/build.h || true
-              make -C src CFLAGS='-O2 -static' LDFLAGS='-static -ltalloc' proot
-              
-              cp src/proot proot-alpine-arm64
-              chmod +x proot-alpine-arm64
+            $IMAGE sh -c "
+
+            apk add --no-cache \
+              git make gcc musl-dev linux-headers \
+              libarchive-dev talloc-dev uthash-dev \
+              libarchive-static talloc-static \
+              bsd-compat-headers
+
+            git config --global --add safe.directory /workspace
+
+            sed -i '1i #include <libgen.h>' src/cli/cli.c
+            sed -i '/^#include/i #include \"mem.h\"' src/tracee/tracee.c
+
+            make -C src loader.elf loader-m32.elf build.h
+
+            sed -i 's/SYSVIPC 0/SYSVIPC 1/g' src/build.h
+            sed -i 's/ENABLE_SYSVIPC 0/ENABLE_SYSVIPC 1/g' src/build.h || true
+
+            make -C src CFLAGS='-O2 -static -s' LDFLAGS='-static' proot
+
+            strip src/proot
+            cp src/proot $OUT
+            chmod +x $OUT
             "
-      
-      - uses: actions/upload-artifact@v4
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
         with:
-          name: proot-alpine-arm64
-          path: proot-alpine-arm64
+          name: proot-${{ matrix.arch }}
+          path: proot-alpine-*
 
   release:
-    needs: [build-x86_64, build-arm64]
+    needs: build
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/v')
-    
+
     steps:
       - uses: actions/download-artifact@v4
         with:
           merge-multiple: true
-      
-      - uses: softprops/action-gh-release@v1
+
+      - name: Create release
+        uses: softprops/action-gh-release@v1
         with:
           files: proot-*
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          
